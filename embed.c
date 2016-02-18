@@ -56,6 +56,7 @@ int main (int argc, char **argv) {
           fputc(255&(sum>>8), inways);
           fputc(255&sum    ,  inways);
           fclose(inways);
+          printf("The file %s has been patched.\n", argv[1]);
           exit(0);
        }
        for (x=12;x--;) if (EOF == getc(inways)) fatal();
