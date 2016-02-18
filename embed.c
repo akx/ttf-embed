@@ -6,6 +6,10 @@
  *
  * This code was written by Tom Murphy 7, and is public domain. Use at your
  * own risk...
+ *
+ * Some modifications (namely, multi-file support and success messages)
+ * were added by Aarni Koskela.  Those modifications are in the public domain
+ * too.
 */
 
 #include <stdio.h>
@@ -13,33 +17,50 @@
 #include <string.h>
 
 void fatal();
+int process_file(const char *filename);
 
 int main(int argc, char **argv) {
-  FILE *inways;
-  if (argc != 2) {
-    printf("Usage: %s font.ttf\n\nPublic Domain software by Tom 7. Use at your own risk.\n", argv[0]);
+  if (argc < 2) {
+    printf("Usage: %s font.ttf [font.ttf...]\n\nPublic Domain software by Tom 7. Use at your own risk.\n", argv[0]);
     return 1;
   }
-  inways = fopen(argv[1], "rb+");
-  if (!inways) {
-    printf("I wasn't able to open the file %s.\n", argv[1]);
-    return 2;
+  for(int i = 1; i < argc; i++) {
+    if(!process_file(argv[i])) {
+      printf("The file %s has been patched.\n", argv[i]);
+    }
   }
-  int x;
+}
+
+int process_file(const char *filename) {
+  FILE *inways;
+  inways = fopen(filename, "rb+");
+  if (!inways) {
+    fprintf(stderr, "I wasn't able to open the file %s.\n", filename);
+    return 1;
+  }
+  int x, rv = 0;
   char type[5];
   type[4] = 0;
   fseek(inways, 12, 0);
   for (;;) {
-    for (x = 0; x < 4; x++)
-      if (EOF == (type[x] = getc(inways)))
-        fatal();
+    for (x = 0; x < 4; x++) {
+      if (EOF == (type[x] = getc(inways))) {
+        fprintf(stderr, "Malformed TTF file: EOF while reading table type.\n");
+        rv = 2;
+        goto end;
+      }
+    }
     if (!strcmp(type, "OS/2")) {
       int length;
       unsigned long loc, fstype, sum = 0;
       loc = ftell(inways); /* location for checksum */
-      for (x = 4; x--;)
-        if (EOF == getc(inways))
-          fatal();
+      for (x = 4; x--;) {
+        if (EOF == getc(inways)) {
+          fprintf(stderr, "Malformed TTF file: EOF while reading table.\n");
+          rv = 3;
+          goto end;
+        }
+      }
       fstype = fgetc(inways) << 24;
       fstype |= fgetc(inways) << 16;
       fstype |= fgetc(inways) << 8;
@@ -48,29 +69,34 @@ int main(int argc, char **argv) {
       length |= fgetc(inways) << 16;
       length |= fgetc(inways) << 8;
       length |= fgetc(inways);
-      if (fseek(inways, fstype + 8, 0))
-        fatal();
+      if (fseek(inways, fstype + 8, 0)) {
+        fprintf(stderr, "Malformed TTF file: fseek error while reading table.\n");
+        rv = 4;
+        goto end;
+      }
       fputc(0, inways);
       fputc(0, inways);
       fseek(inways, fstype, 0);
-      for (x = length; x--;)
+      for (x = length; x--;) {
         sum += fgetc(inways);
+      }
       fseek(inways, loc, 0); /* write checksum */
       fputc(sum >> 24, inways);
       fputc(255 & (sum >> 16), inways);
       fputc(255 & (sum >> 8), inways);
       fputc(255 & sum, inways);
       fclose(inways);
-      printf("The file %s has been patched.\n", argv[1]);
-      exit(0);
+      goto end;
     }
-    for (x = 12; x--;)
-      if (EOF == getc(inways))
-        fatal();
+    for (x = 12; x--;) {
+      if (EOF == getc(inways)) {
+        fprintf(stderr, "Malformed TTF file: EOF while reading table postlude.\n");
+        rv = 5;
+        goto end;
+      }
+    }
   }
-}
-
-void fatal() {
-  fprintf(stderr, "Malformed TTF file.\n");
-  exit(-1);
+  end:
+  fclose(inways);
+  return rv;
 }
